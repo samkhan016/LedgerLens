@@ -1,0 +1,1349 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LedgerLens — AI Financial Document Analysis</title>
+    <script>
+      (function () {
+        const theme = localStorage.getItem("ledgerlens_theme");
+        if (
+          theme === "dark" ||
+          (!theme && window.matchMedia("(prefers-color-scheme: dark)").matches)
+        ) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = { darkMode: "class" };
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        font-family: "Inter", system-ui, sans-serif;
+      }
+      .chat-messages {
+        scroll-behavior: smooth;
+      }
+      .chat-messages::-webkit-scrollbar {
+        width: 6px;
+      }
+      .chat-messages::-webkit-scrollbar-thumb {
+        background: #d1d5db;
+        border-radius: 3px;
+      }
+      .dark .chat-messages::-webkit-scrollbar-thumb {
+        background: #525252;
+      }
+      .prose-chat p {
+        margin-bottom: 0.5rem;
+      }
+      .prose-chat ul,
+      .prose-chat ol {
+        margin-left: 1.25rem;
+        margin-bottom: 0.5rem;
+      }
+      .prose-chat code {
+        background: #f3f4f6;
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.25rem;
+        font-size: 0.875rem;
+      }
+      .prose-chat pre {
+        background: #f3f4f6;
+        padding: 0.75rem;
+        border-radius: 0.375rem;
+        overflow-x: auto;
+        margin-bottom: 0.5rem;
+      }
+      .dark .prose-chat code {
+        background: #262626;
+        color: #e5e5e5;
+      }
+      .dark .prose-chat pre {
+        background: #262626;
+        color: #e5e5e5;
+      }
+      #pdfCanvas {
+        max-width: 100%;
+        height: auto;
+      }
+      .drop-zone-active {
+        border-color: #6b7280 !important;
+        background: #f9fafb !important;
+      }
+      .dark .drop-zone-active {
+        border-color: #737373 !important;
+        background: #171717 !important;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-neutral-50 text-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 h-screen overflow-hidden transition-colors duration-200"
+  >
+    <div class="flex h-full">
+      <!-- Sidebar -->
+      <aside
+        class="w-72 flex-shrink-0 border-r border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex flex-col transition-colors duration-200"
+      >
+        <div class="p-5 border-b border-neutral-200 dark:border-neutral-800">
+          <div class="flex items-center gap-2.5">
+            <div
+              class="w-8 h-8 rounded-lg bg-neutral-900 dark:bg-emerald-600 flex items-center justify-center flex-shrink-0"
+            >
+              <svg
+                class="w-4 h-4 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                />
+              </svg>
+            </div>
+            <div>
+              <h1
+                class="text-base font-semibold text-neutral-900 dark:text-neutral-50 tracking-tight"
+              >
+                LedgerLens
+              </h1>
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">
+                Financial document intelligence
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-4 flex-1 overflow-y-auto">
+          <label
+            for="fileInput"
+            id="dropZone"
+            class="block border-2 border-dashed border-neutral-300 dark:border-neutral-700 rounded-lg p-6 text-center cursor-pointer transition-colors hover:border-neutral-400 dark:hover:border-neutral-500 hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+          >
+            <svg
+              class="w-8 h-8 mx-auto text-neutral-400 dark:text-neutral-500 mb-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.5"
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              />
+            </svg>
+            <p class="text-sm text-neutral-600 dark:text-neutral-300">
+              Drop files here or click to browse
+            </p>
+            <p class="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
+              .pdf, .txt, .csv
+            </p>
+          </label>
+          <input
+            type="file"
+            id="fileInput"
+            accept=".pdf,.txt,.csv,application/pdf,text/plain,text/csv"
+            class="hidden"
+            multiple
+          />
+          <p
+            id="uploadStatus"
+            class="mt-2 text-xs text-neutral-500 dark:text-neutral-400 hidden"
+          ></p>
+          <p class="mt-3 text-xs text-neutral-400 dark:text-neutral-500">
+            Check documents to include in Compare
+          </p>
+
+          <ul id="documentList" class="mt-2 space-y-1"></ul>
+        </div>
+      </aside>
+
+      <!-- Main Area -->
+      <main class="flex-1 flex flex-col min-w-0">
+        <!-- Settings Bar -->
+        <div
+          class="border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-6 py-3 flex items-center gap-3 transition-colors duration-200"
+        >
+          <label
+            for="apiKey"
+            class="text-sm text-neutral-500 dark:text-neutral-400 whitespace-nowrap"
+            >API Key</label
+          >
+          <input
+            type="password"
+            id="apiKey"
+            placeholder="Enter Gemini API key"
+            class="flex-1 max-w-md px-3 py-1.5 text-sm border border-neutral-200 dark:border-neutral-700 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-500 bg-neutral-50 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"
+          />
+          <button
+            id="connectBtn"
+            class="px-4 py-1.5 text-sm font-medium border border-neutral-200 dark:border-neutral-700 rounded-md bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-all duration-300"
+          >
+            Connect
+          </button>
+          <span id="connectionStatus" class="text-xs text-neutral-400"></span>
+          <div class="flex-1"></div>
+          <button
+            id="themeToggle"
+            type="button"
+            aria-label="Toggle dark mode"
+            class="p-2 rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          >
+            <svg
+              id="themeIconSun"
+              class="w-4 h-4 hidden dark:block"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+              />
+            </svg>
+            <svg
+              id="themeIconMoon"
+              class="w-4 h-4 block dark:hidden"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <div class="flex-1 flex min-h-0">
+          <!-- Document Preview + Toolbar -->
+          <div
+            class="flex-1 flex flex-col min-w-0 border-r border-neutral-200 dark:border-neutral-800"
+          >
+            <!-- Analysis Toolbar -->
+            <div
+              class="border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-4 py-2 flex gap-2 flex-wrap transition-colors duration-200"
+            >
+              <button
+                data-analysis="Investment Analysis"
+                class="analysis-btn px-3 py-1.5 text-xs font-medium border border-neutral-200 dark:border-neutral-700 rounded-md text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              >
+                Investment Analysis
+              </button>
+              <button
+                data-analysis="Growth Chances"
+                class="analysis-btn px-3 py-1.5 text-xs font-medium border border-neutral-200 dark:border-neutral-700 rounded-md text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              >
+                Growth Chances
+              </button>
+              <button
+                data-analysis="Growth Trajectory"
+                class="analysis-btn px-3 py-1.5 text-xs font-medium border border-neutral-200 dark:border-neutral-700 rounded-md text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              >
+                Growth Trajectory
+              </button>
+              <button
+                id="compareBtn"
+                data-analysis="Compare"
+                disabled
+                title="Select at least 2 documents to compare"
+                class="analysis-btn px-3 py-1.5 text-xs font-medium border border-neutral-200 dark:border-neutral-700 rounded-md text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
+              >
+                Compare
+              </button>
+            </div>
+
+            <!-- Preview -->
+            <div
+              id="previewArea"
+              class="flex-1 overflow-auto p-6 bg-neutral-50 dark:bg-neutral-950 transition-colors duration-200"
+            >
+              <div
+                id="emptyPreview"
+                class="flex items-center justify-center h-full text-neutral-400 dark:text-neutral-500 text-sm"
+              >
+                Upload a document to preview
+              </div>
+              <div id="pdfPreview" class="hidden">
+                <div class="flex items-center justify-between mb-4">
+                  <span
+                    id="pdfPageInfo"
+                    class="text-xs text-neutral-500 dark:text-neutral-400"
+                  ></span>
+                  <div class="flex gap-2">
+                    <button
+                      id="prevPage"
+                      class="px-2 py-1 text-xs border border-neutral-200 dark:border-neutral-700 rounded bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                    >
+                      Prev
+                    </button>
+                    <button
+                      id="nextPage"
+                      class="px-2 py-1 text-xs border border-neutral-200 dark:border-neutral-700 rounded bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+                <canvas
+                  id="pdfCanvas"
+                  class="mx-auto shadow-sm border border-neutral-200 dark:border-neutral-700 bg-white"
+                ></canvas>
+              </div>
+              <pre
+                id="textPreview"
+                class="hidden text-sm whitespace-pre-wrap font-mono text-neutral-700 dark:text-neutral-200 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg p-4 max-w-none"
+              ></pre>
+            </div>
+          </div>
+
+          <!-- Chat Window -->
+          <div
+            class="w-96 flex-shrink-0 flex flex-col bg-white dark:bg-neutral-900 transition-colors duration-200"
+          >
+            <div
+              class="px-4 py-3 border-b border-neutral-200 dark:border-neutral-800"
+            >
+              <h2
+                class="text-sm font-medium text-neutral-900 dark:text-neutral-100"
+              >
+                Analysis Chat
+              </h2>
+            </div>
+
+            <div
+              id="chatMessages"
+              class="chat-messages flex-1 overflow-y-auto p-4 space-y-3"
+            ></div>
+
+            <div
+              class="border-t border-neutral-200 dark:border-neutral-800 p-3"
+            >
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  id="chatInput"
+                  placeholder="Ask a follow-up question..."
+                  class="flex-1 px-3 py-2 text-sm border border-neutral-200 dark:border-neutral-700 rounded-md focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-500 bg-neutral-50 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"
+                />
+                <button
+                  id="sendBtn"
+                  class="px-3 py-2 text-sm font-medium border border-neutral-200 dark:border-neutral-700 rounded-md bg-neutral-900 dark:bg-emerald-600 text-white hover:bg-neutral-800 dark:hover:bg-emerald-500 transition-colors"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const SYSTEM_PROMPT =
+        "You are an expert Financial Analyst. Your task is to analyze the provided document content and provide professional, data-driven insights. Focus on key performance indicators, risk assessment, and market context. Keep responses structured, concise, and professional.";
+      const GEMINI_MODEL = "gemini-3.5-flash";
+
+      const PDFJS_BASE =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174";
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE}/pdf.worker.min.js`;
+
+      function withTimeout(promise, ms, message) {
+        return Promise.race([
+          promise,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error(message)), ms),
+          ),
+        ]);
+      }
+
+      function yieldToUI() {
+        return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      }
+
+      function getPdfDocumentOptions(arrayBuffer) {
+        return {
+          data: arrayBuffer,
+          cMapUrl: `${PDFJS_BASE}/cmaps/`,
+          cMapPacked: true,
+          standardFontDataUrl: `${PDFJS_BASE}/standard_fonts/`,
+          disableFontFace: true,
+          useSystemFonts: true,
+        };
+      }
+
+      async function loadPdf(arrayBuffer) {
+        if (typeof pdfjsLib === "undefined") {
+          throw new Error(
+            "PDF library failed to load. Check your internet connection.",
+          );
+        }
+        const loadingTask = pdfjsLib.getDocument(
+          getPdfDocumentOptions(arrayBuffer.slice(0)),
+        );
+        return withTimeout(
+          loadingTask.promise,
+          60000,
+          "PDF loading timed out. Try a smaller file or serve the app from http://localhost.",
+        );
+      }
+
+      // State
+      let documents = [];
+      let activeDocId = null;
+      let selectedDocIds = new Set();
+      let extractedText = "";
+      let isConnected = false;
+      let pdfDoc = null;
+      let pdfPageNum = 1;
+      let isLoading = false;
+
+      // DOM refs
+      const dropZone = document.getElementById("dropZone");
+      const fileInput = document.getElementById("fileInput");
+      const uploadStatus = document.getElementById("uploadStatus");
+      const documentList = document.getElementById("documentList");
+      const apiKeyInput = document.getElementById("apiKey");
+      const connectBtn = document.getElementById("connectBtn");
+      const connectionStatus = document.getElementById("connectionStatus");
+      const themeToggle = document.getElementById("themeToggle");
+      const emptyPreview = document.getElementById("emptyPreview");
+      const pdfPreview = document.getElementById("pdfPreview");
+      const textPreview = document.getElementById("textPreview");
+      const pdfCanvas = document.getElementById("pdfCanvas");
+      const pdfPageInfo = document.getElementById("pdfPageInfo");
+      const pdfTextPreview = document.getElementById("pdfTextPreview");
+      const pdfTextStatus = document.getElementById("pdfTextStatus");
+      const chatMessages = document.getElementById("chatMessages");
+      const chatInput = document.getElementById("chatInput");
+      const sendBtn = document.getElementById("sendBtn");
+      const compareBtn = document.getElementById("compareBtn");
+
+      // Theme
+      function isDarkMode() {
+        return document.documentElement.classList.contains("dark");
+      }
+
+      function setTheme(dark) {
+        document.documentElement.classList.toggle("dark", dark);
+        localStorage.setItem("ledgerlens_theme", dark ? "dark" : "light");
+      }
+
+      themeToggle.addEventListener("click", () => {
+        setTheme(!isDarkMode());
+      });
+
+      // Persist API key
+      const savedKey = localStorage.getItem("gemini_api_key");
+      if (savedKey) {
+        apiKeyInput.value = savedKey;
+        setConnected(true);
+      }
+
+      function setConnected(connected) {
+        isConnected = connected;
+        if (connected) {
+          connectBtn.classList.add(
+            "ring-4",
+            "ring-green-400",
+            "dark:ring-green-600",
+          );
+          connectBtn.textContent = "Connected";
+          connectionStatus.textContent = "Ready";
+          connectionStatus.classList.remove("text-neutral-400");
+          connectionStatus.classList.add(
+            "text-green-600",
+            "dark:text-green-400",
+          );
+        } else {
+          connectBtn.classList.remove(
+            "ring-4",
+            "ring-green-400",
+            "dark:ring-green-600",
+          );
+          connectBtn.textContent = "Connect";
+          connectionStatus.textContent = "";
+          connectionStatus.classList.remove(
+            "text-green-600",
+            "dark:text-green-400",
+          );
+          connectionStatus.classList.add("text-neutral-400");
+        }
+      }
+
+      connectBtn.addEventListener("click", () => {
+        const key = apiKeyInput.value.trim();
+        if (!key) {
+          setConnected(false);
+          localStorage.removeItem("gemini_api_key");
+          return;
+        }
+        localStorage.setItem("gemini_api_key", key);
+        setConnected(true);
+      });
+
+      function generateId() {
+        if (
+          typeof crypto !== "undefined" &&
+          typeof crypto.randomUUID === "function"
+        ) {
+          return crypto.randomUUID();
+        }
+        return `doc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      }
+
+      function cloneArrayBuffer(buffer) {
+        return buffer.slice(0);
+      }
+
+      function looksLikeBinaryText(text) {
+        if (!text) return false;
+        const sample = text.slice(0, 4096);
+        let nullCount = 0;
+        for (let i = 0; i < sample.length; i++) {
+          if (sample.charCodeAt(i) === 0) nullCount++;
+        }
+        return nullCount > 0;
+      }
+
+      function validatePdfBuffer(arrayBuffer) {
+        if (!arrayBuffer || arrayBuffer.byteLength < 5) {
+          throw new Error("File is empty or too small to be a valid PDF.");
+        }
+        const header = new TextDecoder("latin1").decode(
+          arrayBuffer.slice(0, 5),
+        );
+        if (!header.startsWith("%PDF")) {
+          throw new Error("File does not appear to be a valid PDF.");
+        }
+      }
+
+      function validateTextContent(text, filename) {
+        if (!text || !text.trim()) {
+          throw new Error("File is empty or contains no readable text.");
+        }
+        if (looksLikeBinaryText(text)) {
+          throw new Error(
+            "File appears to be binary, not plain text. Try exporting as UTF-8.",
+          );
+        }
+      }
+
+      function getDocStatusLabel(doc) {
+        if (doc.textStatus === "pending") return "extracting…";
+        if (doc.textStatus === "error") return "error";
+        if (doc.textStatus === "empty") return "no text";
+        return "";
+      }
+
+      function downloadBlob(filename, blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function stripInlineMarkdown(text) {
+        return text
+          .replace(/\*\*(.+?)\*\*/g, "$1")
+          .replace(/\*(.+?)\*/g, "$1")
+          .replace(/`(.+?)`/g, "$1");
+      }
+
+      function getAnalysisSourceNames(analysisType) {
+        if (analysisType === "Compare") {
+          return documents
+            .filter((doc) => selectedDocIds.has(doc.id))
+            .map((doc) => doc.name)
+            .join(", ");
+        }
+        return getActiveDocument()?.name || "document";
+      }
+
+      function buildAnalysisPdf(analysisType, reply) {
+        if (typeof window.jspdf === "undefined") {
+          throw new Error(
+            "PDF library failed to load. Check your internet connection.",
+          );
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: "pt", format: "a4" });
+        const margin = 48;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const maxWidth = pageWidth - margin * 2;
+        let y = margin;
+
+        function ensureSpace(height) {
+          if (y + height > pageHeight - margin) {
+            doc.addPage();
+            y = margin;
+          }
+        }
+
+        function writeBlock(
+          text,
+          {
+            fontSize = 11,
+            fontStyle = "normal",
+            indent = 0,
+            color = [0, 0, 0],
+            lineGap = 4,
+          } = {},
+        ) {
+          doc.setFont("helvetica", fontStyle);
+          doc.setFontSize(fontSize);
+          doc.setTextColor(...color);
+          const wrapped = doc.splitTextToSize(text, maxWidth - indent);
+          const blockHeight = wrapped.length * fontSize * 1.35 + lineGap;
+          ensureSpace(blockHeight);
+          doc.text(wrapped, margin + indent, y);
+          y += blockHeight;
+        }
+
+        writeBlock(analysisType, {
+          fontSize: 18,
+          fontStyle: "bold",
+          lineGap: 10,
+        });
+        writeBlock(`Generated: ${new Date().toLocaleString()}`, {
+          fontSize: 10,
+          color: [100, 100, 100],
+          lineGap: 2,
+        });
+        writeBlock(`Source: ${getAnalysisSourceNames(analysisType)}`, {
+          fontSize: 10,
+          color: [100, 100, 100],
+          lineGap: 14,
+        });
+        doc.setDrawColor(220, 220, 220);
+        ensureSpace(12);
+        doc.line(margin, y, pageWidth - margin, y);
+        y += 16;
+
+        for (const rawLine of reply.split("\n")) {
+          const line = rawLine.trimEnd();
+          if (!line) {
+            y += 8;
+            continue;
+          }
+
+          let fontSize = 11;
+          let fontStyle = "normal";
+          let indent = 0;
+          let text = line;
+
+          if (line.startsWith("### ")) {
+            fontSize = 12;
+            fontStyle = "bold";
+            text = line.slice(4);
+          } else if (line.startsWith("## ")) {
+            fontSize = 13;
+            fontStyle = "bold";
+            text = line.slice(3);
+          } else if (line.startsWith("# ")) {
+            fontSize = 14;
+            fontStyle = "bold";
+            text = line.slice(2);
+          } else if (/^[-*]\s/.test(line)) {
+            indent = 12;
+            text = "• " + line.replace(/^[-*]\s+/, "");
+          } else if (/^\d+\.\s/.test(line)) {
+            indent = 12;
+          }
+
+          writeBlock(stripInlineMarkdown(text), {
+            fontSize,
+            fontStyle,
+            indent,
+          });
+        }
+
+        return doc;
+      }
+
+      function downloadAnalysisPdf(analysisType, reply) {
+        const doc = buildAnalysisPdf(analysisType, reply);
+        const date = new Date().toISOString().slice(0, 10);
+        const filename = `${sanitizeFilename(analysisType)}-${date}.pdf`;
+        downloadBlob(filename, doc.output("blob"));
+      }
+
+      function sanitizeFilename(name) {
+        return (
+          name
+            .replace(/[^\w\s.-]/g, "")
+            .replace(/\s+/g, "-")
+            .slice(0, 80) || "analysis"
+        );
+      }
+
+      function setUploadStatus(message, isError = false, isWarning = false) {
+        if (!message) {
+          uploadStatus.textContent = "";
+          uploadStatus.classList.add("hidden");
+          uploadStatus.classList.remove(
+            "text-red-600",
+            "dark:text-red-400",
+            "text-green-600",
+            "dark:text-green-400",
+            "text-neutral-500",
+            "dark:text-neutral-400",
+          );
+          return;
+        }
+        uploadStatus.textContent = message;
+        uploadStatus.classList.remove(
+          "hidden",
+          "text-red-600",
+          "dark:text-red-400",
+          "text-green-600",
+          "dark:text-green-400",
+          "text-neutral-500",
+          "dark:text-neutral-400",
+        );
+        if (isError) {
+          uploadStatus.classList.add("text-red-600", "dark:text-red-400");
+        } else if (isWarning) {
+          uploadStatus.classList.add(
+            "text-neutral-500",
+            "dark:text-neutral-400",
+          );
+        } else {
+          uploadStatus.classList.add("text-green-600", "dark:text-green-400");
+        }
+      }
+
+      dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropZone.classList.add("drop-zone-active");
+      });
+
+      dropZone.addEventListener("dragleave", () => {
+        dropZone.classList.remove("drop-zone-active");
+      });
+
+      dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("drop-zone-active");
+        handleFiles(e.dataTransfer.files);
+      });
+
+      fileInput.addEventListener("change", (e) => {
+        const selected = [...e.target.files];
+        fileInput.value = "";
+        handleFiles(selected);
+      });
+
+      function isDocumentTextReady(doc) {
+        return doc.textStatus !== "pending";
+      }
+
+      function getActiveDocument() {
+        return documents.find((doc) => doc.id === activeDocId) || null;
+      }
+
+      async function handleFiles(files) {
+        const fileList = Array.from(files || []);
+        if (!fileList.length) return;
+
+        setUploadStatus("Processing upload...");
+        await yieldToUI();
+
+        let added = 0;
+        const errors = [];
+        const addedDocs = [];
+
+        try {
+          for (let i = 0; i < fileList.length; i++) {
+            const file = fileList[i];
+            setUploadStatus(
+              `Reading ${i + 1} of ${fileList.length}: ${file.name}...`,
+            );
+            await yieldToUI();
+
+            const ext = file.name.includes(".")
+              ? file.name.split(".").pop().toLowerCase()
+              : "";
+            if (!["pdf", "txt", "csv"].includes(ext)) {
+              errors.push(`${file.name}: unsupported file type`);
+              continue;
+            }
+
+            try {
+              const doc = {
+                id: generateId(),
+                name: file.name,
+                type: ext,
+                file: file,
+                text: "",
+                textStatus: "ready",
+              };
+
+              if (ext === "pdf") {
+                const rawBuffer = await withTimeout(
+                  file.arrayBuffer(),
+                  60000,
+                  "File read timed out.",
+                );
+                validatePdfBuffer(rawBuffer);
+                doc.arrayBuffer = cloneArrayBuffer(rawBuffer);
+                doc.textStatus = "pending";
+              } else {
+                doc.text = await withTimeout(
+                  file.text(),
+                  30000,
+                  "File read timed out.",
+                );
+                validateTextContent(doc.text, file.name);
+              }
+
+              documents.push(doc);
+              selectedDocIds.add(doc.id);
+              addedDocs.push(doc);
+              added++;
+            } catch (err) {
+              errors.push(
+                `${file.name}: ${err.message || "failed to read file"}`,
+              );
+            }
+          }
+
+          renderDocumentList();
+
+          if (added > 0) {
+            const latest = addedDocs[addedDocs.length - 1];
+            setUploadStatus(
+              errors.length
+                ? `Added ${added} file(s). ${errors.join(" ")}`
+                : latest.type === "pdf"
+                  ? `Added ${added} file(s). Extracting PDF text...`
+                  : `Added ${added} file(s).`,
+              errors.length > 0,
+            );
+            selectDocument(latest.id).catch((err) => {
+              setUploadStatus(
+                `Added ${added} file(s), but preview failed: ${err.message}`,
+                true,
+              );
+            });
+
+            for (const doc of addedDocs.filter((doc) => doc.type === "pdf")) {
+              populatePdfText(doc);
+            }
+          } else {
+            setUploadStatus(
+              errors.join(" ") || "No files were uploaded.",
+              true,
+            );
+          }
+        } catch (err) {
+          setUploadStatus(err.message || "Upload failed.", true);
+        }
+      }
+
+      async function populatePdfText(doc) {
+        try {
+          doc.text = await extractPdfText(doc.arrayBuffer, (page, total) => {
+            if (activeDocId === doc.id) {
+              setUploadStatus(
+                `Extracting text: page ${page} of ${total} (${doc.name})...`,
+              );
+              updatePdfTextPreview(doc);
+            }
+          });
+          if (!doc.text.trim()) {
+            doc.textStatus = "empty";
+            doc.textError =
+              "No extractable text found. This may be a scanned or image-only PDF.";
+          } else {
+            doc.textStatus = "ready";
+          }
+          renderDocumentList();
+          if (activeDocId === doc.id) {
+            extractedText = doc.text;
+            updatePdfTextPreview(doc);
+            if (doc.textStatus === "empty") {
+              setUploadStatus(`${doc.name}: ${doc.textError}`, false, true);
+            } else {
+              setUploadStatus(`Ready: ${doc.name}`);
+            }
+          }
+        } catch (err) {
+          doc.textStatus = "error";
+          doc.textError = err.message || "failed to extract PDF text";
+          renderDocumentList();
+          if (activeDocId === doc.id) {
+            updatePdfTextPreview(doc);
+            setUploadStatus(`${doc.name}: ${doc.textError}`, true);
+          }
+        }
+      }
+
+      async function extractPdfText(arrayBuffer, onProgress) {
+        const extract = async () => {
+          const pdf = await loadPdf(cloneArrayBuffer(arrayBuffer));
+          let text = "";
+          for (let i = 1; i <= pdf.numPages; i++) {
+            if (onProgress) onProgress(i, pdf.numPages);
+            const page = await withTimeout(
+              pdf.getPage(i),
+              30000,
+              `Timed out loading page ${i}.`,
+            );
+            const content = await withTimeout(
+              page.getTextContent(),
+              30000,
+              `Timed out reading page ${i}.`,
+            );
+            text += content.items.map((item) => item.str).join(" ") + "\n";
+          }
+          return text.trim();
+        };
+
+        return withTimeout(
+          extract(),
+          120000,
+          "PDF text extraction timed out. Try a smaller file or serve the app from http://localhost.",
+        );
+      }
+
+      function updateCompareButton() {
+        const canCompare = selectedDocIds.size >= 2;
+        compareBtn.disabled = !canCompare;
+        compareBtn.title = canCompare
+          ? "Compare selected documents"
+          : "Select at least 2 documents to compare";
+      }
+
+      function getSelectedDocumentsContent() {
+        return documents
+          .filter((doc) => selectedDocIds.has(doc.id))
+          .map((doc) => {
+            if (doc.textStatus === "pending") {
+              return `--- ${doc.name} ---\n[Text extraction still in progress]`;
+            }
+            if (doc.textStatus === "error") {
+              return `--- ${doc.name} ---\n[Text extraction failed: ${doc.textError || "unknown error"}]`;
+            }
+            if (doc.textStatus === "empty") {
+              return `--- ${doc.name} ---\n[No extractable text — may be a scanned PDF]`;
+            }
+            return `--- ${doc.name} ---\n${doc.text}`;
+          })
+          .join("\n\n");
+      }
+
+      function getDocumentReadinessMessage() {
+        const activeDoc = getActiveDocument();
+        if (!activeDoc) {
+          return "Please upload a document first.";
+        }
+        if (activeDoc.textStatus === "pending") {
+          return "Still extracting text from the PDF. Please wait a moment and try again.";
+        }
+        if (activeDoc.textStatus === "error") {
+          return `Could not extract text from ${activeDoc.name}: ${activeDoc.textError || "unknown error"}`;
+        }
+        if (activeDoc.textStatus === "empty") {
+          return `${activeDoc.name} has no extractable text. It may be a scanned or image-only PDF.`;
+        }
+        if (!extractedText?.trim()) {
+          return `${activeDoc.name} has no readable text content.`;
+        }
+        return null;
+      }
+
+      function getCompareReadinessMessage() {
+        const selected = documents.filter((doc) => selectedDocIds.has(doc.id));
+        const pending = selected.filter((doc) => doc.textStatus === "pending");
+        if (pending.length) {
+          return `Still extracting text from: ${pending.map((doc) => doc.name).join(", ")}. Please wait and try again.`;
+        }
+        const failed = selected.filter((doc) => doc.textStatus === "error");
+        if (failed.length) {
+          return `Text extraction failed for: ${failed.map((doc) => doc.name).join(", ")}.`;
+        }
+        const empty = selected.filter((doc) => doc.textStatus === "empty");
+        if (empty.length) {
+          return `No extractable text in: ${empty.map((doc) => doc.name).join(", ")}. These may be scanned PDFs.`;
+        }
+        return null;
+      }
+
+      function renderDocumentList() {
+        documentList.innerHTML = documents
+          .map((doc) => {
+            const status = getDocStatusLabel(doc);
+            const statusBadge = status
+              ? `<span class="text-[10px] uppercase ml-1 ${doc.textStatus === "error" ? "text-red-500" : doc.textStatus === "empty" ? "text-amber-500" : "text-neutral-400"}">${status}</span>`
+              : "";
+            return `
+        <li class="flex items-center gap-2">
+          <input
+            type="checkbox"
+            data-id="${doc.id}"
+            class="doc-select mt-0.5 rounded border-neutral-300 dark:border-neutral-600 dark:bg-neutral-800 text-emerald-600 focus:ring-emerald-500"
+            ${selectedDocIds.has(doc.id) ? "checked" : ""}
+            aria-label="Select ${escapeHtml(doc.name)} for compare"
+          >
+          <button
+            data-id="${doc.id}"
+            class="doc-item flex-1 min-w-0 text-left px-3 py-2 text-sm rounded-md truncate transition-colors ${
+              doc.id === activeDocId
+                ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 font-medium"
+                : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+            }"
+          >
+            <span class="text-xs text-neutral-400 dark:text-neutral-500 uppercase mr-1">${doc.type}</span>
+            ${escapeHtml(doc.name)}${statusBadge}
+          </button>
+        </li>
+      `;
+          })
+          .join("");
+
+        documentList.querySelectorAll(".doc-item").forEach((btn) => {
+          btn.addEventListener("click", () => selectDocument(btn.dataset.id));
+        });
+
+        documentList.querySelectorAll(".doc-select").forEach((checkbox) => {
+          checkbox.addEventListener("change", (e) => {
+            if (e.target.checked) {
+              selectedDocIds.add(checkbox.dataset.id);
+            } else {
+              selectedDocIds.delete(checkbox.dataset.id);
+            }
+            updateCompareButton();
+          });
+        });
+
+        updateCompareButton();
+      }
+
+      async function selectDocument(id) {
+        activeDocId = id;
+        const doc = documents.find((d) => d.id === id);
+        if (!doc) return;
+
+        extractedText = doc.text || "";
+        renderDocumentList();
+        await renderPreview(doc);
+      }
+
+      function updatePdfTextPreview(doc) {
+        if (!pdfTextPreview || !pdfTextStatus) return;
+        if (doc.textStatus === "pending") {
+          pdfTextStatus.textContent = "Extracting…";
+          pdfTextPreview.textContent = "Reading text from PDF pages…";
+        } else if (doc.textStatus === "error") {
+          pdfTextStatus.textContent = "Extraction failed";
+          pdfTextPreview.textContent =
+            doc.textError || "Could not extract text from this PDF.";
+        } else if (doc.textStatus === "empty") {
+          pdfTextStatus.textContent = "No text layer";
+          pdfTextPreview.textContent =
+            "No extractable text was found. This PDF may be scanned or image-only. The visual preview above may still show the document pages.";
+        } else {
+          pdfTextStatus.textContent = `${doc.text.length.toLocaleString()} characters`;
+          pdfTextPreview.textContent = doc.text;
+        }
+      }
+
+      async function renderPreview(doc) {
+        emptyPreview.classList.add("hidden");
+        pdfPreview.classList.add("hidden");
+        textPreview.classList.add("hidden");
+
+        if (doc.type === "pdf") {
+          pdfPreview.classList.remove("hidden");
+          updatePdfTextPreview(doc);
+          try {
+            const arrayBuffer = doc.arrayBuffer
+              ? cloneArrayBuffer(doc.arrayBuffer)
+              : cloneArrayBuffer(await doc.file.arrayBuffer());
+            pdfDoc = await loadPdf(arrayBuffer);
+            pdfPageNum = 1;
+            await renderPdfPage();
+          } catch (err) {
+            pdfTextStatus.textContent = "Preview failed";
+            pdfTextPreview.textContent =
+              err.message || "Could not render PDF preview.";
+            setUploadStatus(`${doc.name}: ${err.message}`, true);
+          }
+        } else {
+          textPreview.classList.remove("hidden");
+          textPreview.textContent = doc.text?.trim()
+            ? doc.text
+            : "(No readable text in this file)";
+        }
+      }
+
+      async function renderPdfPage() {
+        if (!pdfDoc) return;
+        const page = await pdfDoc.getPage(pdfPageNum);
+        const viewport = page.getViewport({ scale: 1.2 });
+        const ctx = pdfCanvas.getContext("2d");
+        pdfCanvas.height = viewport.height;
+        pdfCanvas.width = viewport.width;
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        pdfPageInfo.textContent = `Page ${pdfPageNum} of ${pdfDoc.numPages}`;
+      }
+
+      document.getElementById("prevPage").addEventListener("click", () => {
+        if (pdfPageNum > 1) {
+          pdfPageNum--;
+          renderPdfPage();
+        }
+      });
+
+      document.getElementById("nextPage").addEventListener("click", () => {
+        if (pdfDoc && pdfPageNum < pdfDoc.numPages) {
+          pdfPageNum++;
+          renderPdfPage();
+        }
+      });
+
+      // Chat
+      function appendMessage(role, content, isMarkdown = false) {
+        const div = document.createElement("div");
+        div.className =
+          role === "user" ? "flex justify-end" : "flex justify-start";
+
+        const bubble = document.createElement("div");
+        bubble.className =
+          role === "user"
+            ? "max-w-[85%] px-3 py-2 text-sm bg-neutral-900 dark:bg-emerald-600 text-white rounded-lg rounded-br-sm"
+            : "max-w-[85%] px-3 py-2 text-sm bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 rounded-lg rounded-bl-sm prose-chat";
+
+        if (isMarkdown && role === "bot") {
+          bubble.innerHTML = marked.parse(content);
+        } else {
+          bubble.textContent = content;
+        }
+
+        div.appendChild(bubble);
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return bubble;
+      }
+
+      const DOWNLOADABLE_ANALYSES = new Set([
+        "Investment Analysis",
+        "Growth Chances",
+        "Growth Trajectory",
+        "Compare",
+      ]);
+
+      function appendLoadingMessage() {
+        const row = document.createElement("div");
+        row.className = "flex justify-start";
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "max-w-[85%] flex flex-col gap-1.5";
+
+        const bubble = document.createElement("div");
+        bubble.className =
+          "px-3 py-2 text-sm bg-neutral-100 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 rounded-lg rounded-bl-sm prose-chat";
+        bubble.textContent = "Analyzing...";
+
+        wrapper.appendChild(bubble);
+        row.appendChild(wrapper);
+        chatMessages.appendChild(row);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        return { bubble, wrapper, row };
+      }
+
+      function addDownloadButton(wrapper, analysisType, reply) {
+        const downloadBtn = document.createElement("button");
+        downloadBtn.type = "button";
+        downloadBtn.className =
+          "self-start px-2 py-1 text-[11px] font-medium border border-neutral-200 dark:border-neutral-700 rounded-md text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors flex items-center gap-1";
+        downloadBtn.innerHTML = `
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+        Download ${escapeHtml(analysisType)}
+      `;
+        downloadBtn.addEventListener("click", () => {
+          try {
+            downloadAnalysisPdf(analysisType, reply);
+          } catch (err) {
+            appendMessage("bot", err.message || "Failed to generate PDF.");
+          }
+        });
+        wrapper.appendChild(downloadBtn);
+      }
+
+      async function callGeminiAPI(userRequest, documentContent = null) {
+        const key = apiKeyInput.value.trim();
+        if (!key) {
+          throw new Error("Please enter and connect your API key first.");
+        }
+        const content = documentContent ?? extractedText;
+        if (!content) {
+          throw new Error("Please upload and select a document first.");
+        }
+
+        const requestBody = {
+          contents: [
+            {
+              parts: [
+                {
+                  text: `${SYSTEM_PROMPT}\n\nDocument Content:\n${content}\n\nUser Request: ${userRequest}`,
+                },
+              ],
+            },
+          ],
+        };
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody),
+          },
+        );
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(
+            err.error?.message || `API error (${response.status})`,
+          );
+        }
+
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error("No response from model.");
+        return text;
+      }
+
+      async function runAnalysis(analysisType) {
+        if (isLoading) return;
+        if (!isConnected) {
+          appendMessage("bot", "Please connect your API key first.");
+          return;
+        }
+        if (analysisType === "Compare") {
+          if (selectedDocIds.size < 2) return;
+          const compareMessage = getCompareReadinessMessage();
+          if (compareMessage) {
+            appendMessage("bot", compareMessage);
+            return;
+          }
+        } else {
+          const readinessMessage = getDocumentReadinessMessage();
+          if (readinessMessage) {
+            appendMessage("bot", readinessMessage);
+            return;
+          }
+        }
+
+        isLoading = true;
+        appendMessage("user", analysisType);
+        const { bubble: loadingBubble, wrapper: loadingWrapper } =
+          appendLoadingMessage();
+
+        try {
+          const docContent =
+            analysisType === "Compare"
+              ? getSelectedDocumentsContent()
+              : extractedText;
+          const reply = await callGeminiAPI(analysisType, docContent);
+          loadingBubble.innerHTML = marked.parse(reply);
+          loadingBubble.classList.add("prose-chat");
+          if (DOWNLOADABLE_ANALYSES.has(analysisType)) {
+            addDownloadButton(loadingWrapper, analysisType, reply);
+          }
+        } catch (err) {
+          loadingBubble.textContent = err.message;
+        } finally {
+          isLoading = false;
+        }
+      }
+
+      document.querySelectorAll(".analysis-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (btn.disabled) return;
+          runAnalysis(btn.dataset.analysis);
+        });
+      });
+
+      updateCompareButton();
+
+      if (location.protocol === "file:") {
+        setUploadStatus(
+          "Tip: open via http://localhost to avoid PDF upload issues.",
+          false,
+          true,
+        );
+      }
+
+      async function sendChatMessage() {
+        const msg = chatInput.value.trim();
+        if (!msg || isLoading) return;
+        chatInput.value = "";
+
+        if (!isConnected) {
+          appendMessage("bot", "Please connect your API key first.");
+          return;
+        }
+        const readinessMessage = getDocumentReadinessMessage();
+        if (readinessMessage) {
+          appendMessage("bot", readinessMessage);
+          return;
+        }
+
+        isLoading = true;
+        appendMessage("user", msg);
+        const { bubble: loadingBubble } = appendLoadingMessage();
+
+        try {
+          const reply = await callGeminiAPI(msg);
+          loadingBubble.innerHTML = marked.parse(reply);
+          loadingBubble.classList.add("prose-chat");
+        } catch (err) {
+          loadingBubble.textContent = err.message;
+        } finally {
+          isLoading = false;
+        }
+      }
+
+      sendBtn.addEventListener("click", sendChatMessage);
+      chatInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") sendChatMessage();
+      });
+
+      function escapeHtml(str) {
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+      }
+    </script>
+  </body>
+</html>
